@@ -1,7 +1,7 @@
 // 画面（スマホ版）。計算は rules.js、保存は db.js。
-import * as R from "./rules.js?v=5";
-import * as DB from "./db.js?v=5";
-import * as C from "./csv.js?v=5";
+import * as R from "./rules.js?v=6";
+import * as DB from "./db.js?v=6";
+import * as C from "./csv.js?v=6";
 
 let S = DB.load();
 try { R.setFxTable(JSON.parse(localStorage.getItem("shikinkanri.fx") || "[]")); } catch (e) { /* なければ空 */ }
@@ -284,19 +284,25 @@ function applyFx(data) {
 }
 function trend() {
   const st = cfg().stats; const key = st.period || "ytd"; const [start, end] = R.periodRange(key, [st.from || `${new Date().getFullYear()}-01-01`, st.to || R.today()]);
-  const pts = R.assetsSeries(S, start, end); setChrome("資産推移", R.periodLabel(key, start, end), "#trend");
+  const mode = st.trend_mode === "trades" ? "trades" : "assets";
+  const est = R.tradesSeries(S, start, end);
+  const pts = mode === "trades" ? (est || []) : R.assetsSeries(S, start, end); setChrome("資産推移", R.periodLabel(key, start, end), "#trend");
   const sel = cfg().charts.trend_indexes || [];
-  let h = periodBar("trend", key, st.from || `${new Date().getFullYear()}-01-01`, st.to || R.today(), null) + `<div class="card">${lineChart(pts)}`;
+  let h = periodBar("trend", key, st.from || `${new Date().getFullYear()}-01-01`, st.to || R.today(), null)
+    + `<div class="tabs"><a href="#trend" data-mode="assets" class="${mode === "assets" ? "on" : ""}">登録した総資産</a><a href="#trend" data-mode="trades" class="${mode === "trades" ? "on" : ""}">売買から推定</a></div>`
+    + `<div class="card">${mode === "trades" && !est ? '<div class="muted">総資産の登録が1件もないので推定できません。一度「総資産を登録する」で基準の金額を入れてください。</div>' : lineChart(pts)}`;
   if (pts.length >= 2) { const a = pts[0][1], b = pts[pts.length - 1][1]; h += kv(`${pts[0][0]} → ${pts[pts.length - 1][0]}`, `${R.signed0(b - a)} 円（${R.signedPct((b / a - 1) * 100, 1)}）`, b >= a ? "plus" : "minus") + kv("期間の最高・最低", `${R.fmt0(Math.max(...pts.map((p) => p[1])) / 10000)}万 / ${R.fmt0(Math.min(...pts.map((p) => p[1])) / 10000)}万円`); }
   h += "</div>";
   h += `<h2>指数と比較（起点からの変化率）</h2><div class="chips" id="idx_chips">${R.INDEXES.map(([n, sym, col]) => `<span class="chip ${sel.includes(sym) ? "on" : ""}" data-sym="${sym}" style="${sel.includes(sym) ? `border-color:${col};color:${col}` : ""}">${esc(n)}</span>`).join("")}</div><div class="card" id="idx_card"><div class="muted">読み込み中…</div></div>`;
-  if (pts.length) h += `<h2>登録した値（新しい順）</h2><div class="card">${[...pts].reverse().slice(0, 20).map(([d, v]) => kv(d, R.yen(v))).join("")}</div>`;
+  if (mode === "trades") h += box("info", `一番新しい総資産の登録（${R.latestAssets(S.assets) ? R.latestAssets(S.assets).date : "-"}）を基準に、手仕舞いで確定した損益を日ごとに足し引きした推定です。含み損益・入出金・税は入りません。点は手仕舞いのあった日です。`);
+  if (pts.length) h += `<h2>${mode === "trades" ? "推定した値" : "登録した値"}（新しい順）</h2><div class="card">${[...pts].reverse().slice(0, 20).map(([d, v]) => kv(d, R.yen(v))).join("")}</div>`;
   h += '<a class="btn sub" href="#assets">総資産を登録する</a>';
   $("#main").innerHTML = h; bindPeriod("trend");
+  $("#main").addEventListener("click", (ev) => { const a = ev.target.closest("[data-mode]"); if (!a) return; ev.preventDefault(); st.trend_mode = a.dataset.mode; save(); trend(); });
   $("#idx_chips").addEventListener("click", (ev) => { const c = ev.target.closest("[data-sym]"); if (!c) return; const arr = cfg().charts.trend_indexes || []; const i = arr.indexOf(c.dataset.sym); if (i >= 0) arr.splice(i, 1); else arr.push(c.dataset.sym); cfg().charts.trend_indexes = arr; save(); trend(); });
   loadIndices().then((data) => {
     const card = $("#idx_card"); if (!card) return;
-    if (pts.length < 2) { card.innerHTML = '<div class="muted">この期間に総資産の登録が2回以上ないので、比べられません。</div>'; return; }
+    if (pts.length < 2) { card.innerHTML = `<div class="muted">${mode === "trades" ? "この期間に手仕舞いが無いので、比べられません。" : "この期間に総資産の登録が2回以上ないので、比べられません。"}</div>`; return; }
     if (!data) { card.innerHTML = `<div class="muted">${esc(idxErr)}</div>`; return; }
     const d0 = pts[0][0], d1 = pts[pts.length - 1][0];
     const series = [{ name: "総資産", color: "var(--accent)", pts: R.pctSeries(pts) }]; const missing = [];

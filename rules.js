@@ -31,7 +31,7 @@ export const EX_TYPE_LABEL = { real: "実EX", reset: "置き直しEX", month_end
 export const DEFAULT_SETTINGS = {
   risk: { ruin_threshold_pct: 30, max_risk_pct: 3.4, win_rate_pct: 50, rr_ratio: 2.0, max_positions: 4, max_total_loss_pct: 4.0, reset_threshold_pct: 3.0 },
   charts: { trend_indexes: ["^N225"],  colors: ["#2f6fed", "#f28c28", "#2fa36b", "#d64561", "#8e5bd6", "#1fa3b8", "#c9a227", "#7a7a7a"], cash_color: "#b9c2cf" },
-  stats: { period: "ytd", sort: "new" },
+  stats: { period: "ytd", sort: "new", trend_mode: "assets" },
 };
 
 // ---------- 書式 ----------
@@ -334,6 +334,27 @@ export function assetsSeries(state, start, end) {
   return [...(before.length ? [before[before.length - 1]] : []), ...inr].map((x) => [x.date, +x.total_jpy]);
 }
 
+
+// ---------- 売買から推定した総資産（確定損益の積み上げ） ----------
+// 基準＝一番新しい総資産の登録（日付 A、金額 T）。A より前の日 d は T − (d の翌日〜A に確定した損益)、A より後は T ＋ (A の翌日〜d に確定した損益)。
+// 含み損益・入出金・税は入らない。点は手仕舞いのあった日ごと。登録が1件もなければ null。
+export function tradesSeries(state, start = null, end = null) {
+  const anchor = latestAssets(state.assets); if (!anchor) return null;
+  const A = anchor.date, T = +anchor.total_jpy;
+  const closed = enrichLots(activeLots(state.lots), state.assets).filter((r) => r.ex_date && r.pnl_jpy != null);
+  const byDay = new Map();
+  for (const r of closed) byDay.set(r.ex_date, (byDay.get(r.ex_date) || 0) + r.pnl_jpy);
+  const days = [...new Set([...byDay.keys(), A])].sort();
+  const pts = days.map((d) => {
+    let v = T;
+    if (d < A) { for (const [x, p] of byDay) if (x > d && x <= A) v -= p; }
+    else { for (const [x, p] of byDay) if (x > A && x <= d) v += p; }
+    return [d, Math.round(v)];
+  });
+  if (!start) return pts.filter(([d]) => !end || d <= end);
+  const before = pts.filter(([d]) => d < start), inr = pts.filter(([d]) => d >= start && (!end || d <= end));
+  return [...(before.length ? [before[before.length - 1]] : []), ...inr];
+}
 
 // ---------- 指数との比較（資産推移） ----------
 export const INDEXES = [["日経225", "^N225", "#9aa3af"], ["NASDAQ100", "^NDX", "#c0392b"], ["S&P500", "^GSPC", "#16a085"], ["SOX", "^SOX", "#8e44ad"], ["オルカン", "ACWI", "#d4a017"]];

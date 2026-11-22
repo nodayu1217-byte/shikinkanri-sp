@@ -86,3 +86,16 @@ test("為替：自分で入れた値が優先、なければ自動取得のド�
   assert.equal(pv.fx, 160); assert.equal(pv.amount_local, 1000); assert.equal(pv.fx_missing, false);
   R.setFxTable([]);
 });
+
+test("売買から推定した総資産：基準の登録から確定損益を前後に足し引き", () => {
+  const s = fresh(); R.upsertAssets(s, "2026-10-01", 10_000_000, null);
+  const a = R.insertLot(s, { code: "7203", market: "JP", account: "cash", en_date: "2026-09-10", en_price: 3000, shares: 100 }); R.closeLot(s, a, "2026-09-20", 2500);   // −50,000（基準より前）
+  const b = R.insertLot(s, { code: "7203", market: "JP", account: "cash", en_date: "2026-10-02", en_price: 3000, shares: 100 }); R.closeLot(s, b, "2026-10-10", 4000);   // +100,000（基準より後）
+  const c = R.insertLot(s, { code: "7203", market: "JP", account: "cash", en_date: "2026-10-12", en_price: 3000, shares: 100 });   // 保有中は入らない
+  assert.deepEqual(R.tradesSeries(s), [["2026-09-20", 10_000_000], ["2026-10-01", 10_000_000], ["2026-10-10", 10_100_000]]);
+  // 9/20 より前は、9/20 の損失が起きる前なので 50,000 多い → 9/19 時点を表す点はないが、期間を 9/15〜9/25 にすると 9/20 の点だけ
+  assert.deepEqual(R.tradesSeries(s, "2026-09-15", "2026-09-25"), [["2026-09-20", 10_000_000]]);
+  assert.deepEqual(R.tradesSeries(s, "2026-10-05", "2026-10-31"), [["2026-10-01", 10_000_000], ["2026-10-10", 10_100_000]]);
+  assert.equal(R.tradesSeries(fresh()), null);
+  void c;
+});
