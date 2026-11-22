@@ -1,7 +1,7 @@
 // 画面（スマホ版）。計算は rules.js、保存は db.js。
-import * as R from "./rules.js";
-import * as DB from "./db.js";
-import * as C from "./csv.js";
+import * as R from "./rules.js?v=3";
+import * as DB from "./db.js?v=3";
+import * as C from "./csv.js?v=3";
 
 let S = DB.load();
 const cfg = () => S.settings;
@@ -254,15 +254,56 @@ function lineChart(points) {
   return `<svg class="chart" viewBox="0 0 ${W} ${H}">${grid}<polygon points="${X(xs[0]).toFixed(1)},${Y(y0).toFixed(1)} ${pts} ${X(xs[xs.length - 1]).toFixed(1)},${Y(y0).toFixed(1)}" fill="${col}" fill-opacity=".12"/><polyline points="${pts}" fill="none" stroke="${col}" stroke-width="2.2" stroke-linejoin="round"/><circle cx="${X(xs[xs.length - 1]).toFixed(1)}" cy="${Y(ys[ys.length - 1]).toFixed(1)}" r="3.5" fill="${col}"/>
     <text x="${L}" y="${H - 8}" font-size="10" fill="currentColor" fill-opacity=".7">${points[0][0]}</text><text x="${W - Rr}" y="${H - 8}" text-anchor="end" font-size="10" fill="currentColor" fill-opacity=".7">${points[points.length - 1][0]}</text></svg>`;
 }
+let idxData = null, idxErr = "";
+async function loadIndices() {
+  if (idxData) return idxData;
+  try { const r = await fetch("./data/indices.json", { cache: "no-cache" }); if (!r.ok) throw new Error(r.status); idxData = await r.json(); idxErr = ""; }
+  catch (e) { idxErr = "指数の値を読めませんでした（オフラインか、まだ配信前です）"; }
+  return idxData;
+}
+// 変化率（%）で何本か重ねる折れ線。series = [{name, color, pts:[[日付, %]]}]。最初の系列が総資産
+function compareChart(series) {
+  const W = 360, H = 210, L = 40, Rr = 10, T = 10, B = 26;
+  const all = series.flatMap((s) => s.pts); const xs = all.map(([d]) => new Date(d).getTime()), ys = all.map(([, v]) => v);
+  let x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(0, ...ys), y1 = Math.max(0, ...ys); if (y1 - y0 < 1) { y0 -= 1; y1 += 1; } if (x1 === x0) x1 = x0 + 1; const pad = (y1 - y0) * 0.08; y0 -= pad; y1 += pad;
+  const X = (x) => L + (x - x0) / (x1 - x0) * (W - L - Rr), Y = (y) => T + (1 - (y - y0) / (y1 - y0)) * (H - T - B);
+  let g = "";
+  for (let i = 0; i < 5; i++) { const yv = y0 + (y1 - y0) * i / 4; g += `<line x1="${L}" x2="${W - Rr}" y1="${Y(yv).toFixed(1)}" y2="${Y(yv).toFixed(1)}" stroke="currentColor" stroke-opacity=".12"/><text x="${L - 4}" y="${(Y(yv) + 4).toFixed(1)}" text-anchor="end" font-size="10" fill="currentColor" fill-opacity=".7">${yv >= 0 ? "+" : ""}${yv.toFixed(0)}%</text>`; }
+  g += `<line x1="${L}" x2="${W - Rr}" y1="${Y(0).toFixed(1)}" y2="${Y(0).toFixed(1)}" stroke="currentColor" stroke-opacity=".4"/>`;
+  const lines = series.map((s, i) => { const p = s.pts.map(([d, v]) => `${X(new Date(d).getTime()).toFixed(1)},${Y(v).toFixed(1)}`).join(" "); const last = s.pts[s.pts.length - 1];
+    return `<polyline points="${p}" fill="none" stroke="${s.color}" stroke-width="${i === 0 ? 2.6 : 1.6}" stroke-linejoin="round"${i === 0 ? "" : ' stroke-opacity=".9"'}/><circle cx="${X(new Date(last[0]).getTime()).toFixed(1)}" cy="${Y(last[1]).toFixed(1)}" r="3" fill="${s.color}"/>`; }).join("");
+  const d0 = all.map(([d]) => d).sort()[0], d1 = all.map(([d]) => d).sort().at(-1);
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}">${g}${lines}<text x="${L}" y="${H - 8}" font-size="10" fill="currentColor" fill-opacity=".7">${d0}</text><text x="${W - Rr}" y="${H - 8}" text-anchor="end" font-size="10" fill="currentColor" fill-opacity=".7">${d1}</text></svg>`;
+}
 function trend() {
   const st = cfg().stats; const key = st.period || "ytd"; const [start, end] = R.periodRange(key, [st.from || `${new Date().getFullYear()}-01-01`, st.to || R.today()]);
   const pts = R.assetsSeries(S, start, end); setChrome("資産推移", R.periodLabel(key, start, end), "#trend");
+  const sel = cfg().charts.trend_indexes || [];
   let h = periodBar("trend", key, st.from || `${new Date().getFullYear()}-01-01`, st.to || R.today(), null) + `<div class="card">${lineChart(pts)}`;
   if (pts.length >= 2) { const a = pts[0][1], b = pts[pts.length - 1][1]; h += kv(`${pts[0][0]} → ${pts[pts.length - 1][0]}`, `${R.signed0(b - a)} 円（${R.signedPct((b / a - 1) * 100, 1)}）`, b >= a ? "plus" : "minus") + kv("期間の最高・最低", `${R.fmt0(Math.max(...pts.map((p) => p[1])) / 10000)}万 / ${R.fmt0(Math.min(...pts.map((p) => p[1])) / 10000)}万円`); }
   h += "</div>";
+  h += `<h2>指数と比べる（起点からの変化率）</h2><div class="chips" id="idx_chips">${R.INDEXES.map(([n, sym, col]) => `<span class="chip ${sel.includes(sym) ? "on" : ""}" data-sym="${sym}" style="${sel.includes(sym) ? `border-color:${col};color:${col}` : ""}">${esc(n)}</span>`).join("")}</div><div class="card" id="idx_card"><div class="muted">読み込み中…</div></div>`;
   if (pts.length) h += `<h2>登録した値（新しい順）</h2><div class="card">${[...pts].reverse().slice(0, 20).map(([d, v]) => kv(d, R.yen(v))).join("")}</div>`;
   h += '<a class="btn sub" href="#assets">総資産を登録する</a>';
   $("#main").innerHTML = h; bindPeriod("trend");
+  $("#idx_chips").addEventListener("click", (ev) => { const c = ev.target.closest("[data-sym]"); if (!c) return; const arr = cfg().charts.trend_indexes || []; const i = arr.indexOf(c.dataset.sym); if (i >= 0) arr.splice(i, 1); else arr.push(c.dataset.sym); cfg().charts.trend_indexes = arr; save(); trend(); });
+  loadIndices().then((data) => {
+    const card = $("#idx_card"); if (!card) return;
+    if (pts.length < 2) { card.innerHTML = '<div class="muted">この期間に総資産の登録が2回以上ないので、比べられません。</div>'; return; }
+    if (!data) { card.innerHTML = `<div class="muted">${esc(idxErr)}</div>`; return; }
+    const d0 = pts[0][0], d1 = pts[pts.length - 1][0];
+    const series = [{ name: "総資産", color: "var(--accent)", pts: R.pctSeries(pts) }]; const missing = [];
+    for (const [n, sym, col] of R.INDEXES) { if (!sel.includes(sym)) continue; const p = R.indexSeries((data.series || {})[sym], d0, d1); if (p.length >= 2) series.push({ name: n, color: col, pts: R.pctSeries(p), chg: R.changePct(p) }); else missing.push(n); }
+    const base = R.changePct(pts);
+    let out = compareChart(series);
+    out += `<div class="kv"><span class="k">${d0} → ${d1}</span><span class="k">騰落率　総資産との差</span></div>`;
+    out += `<div class="kv"><span class="k" style="color:var(--accent);font-weight:700">■ 総資産</span><span class="v">${R.signedPct(base, 1)}</span></div>`;
+    for (const s2 of series.slice(1)) out += `<div class="kv"><span class="k" style="color:${s2.color};font-weight:700">■ ${esc(s2.name)}</span><span class="v">${R.signedPct(s2.chg, 1)}　<span class="${base - s2.chg >= 0 ? "plus" : "minus"}">${base - s2.chg >= 0 ? "+" : "−"}${Math.abs(base - s2.chg).toFixed(1)}pt</span></span></div>`;
+    if (series.length === 1) out += '<div class="muted">上の名前を押すと、その指数の線が重なります。</div>';
+    if (missing.length) out += `<div class="muted">取得できず: ${esc(missing.join("、"))}</div>`;
+    out += `<div class="muted">起点は開始日以前の最後の総資産の登録日。指数の値は毎朝自動更新（最終 ${esc((data.updated || "").slice(0, 10))}）。総資産は入出金も含むので目安です。</div>`;
+    card.innerHTML = out;
+  });
 }
 
 // ---------- 振り返り（取引ごと） ----------

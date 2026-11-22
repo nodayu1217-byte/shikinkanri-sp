@@ -30,7 +30,7 @@ export const EX_TYPE_LABEL = { real: "実EX", reset: "置き直しEX", month_end
 
 export const DEFAULT_SETTINGS = {
   risk: { ruin_threshold_pct: 30, max_risk_pct: 3.4, win_rate_pct: 50, rr_ratio: 2.0, max_positions: 4, max_total_loss_pct: 4.0, reset_threshold_pct: 3.0 },
-  charts: { colors: ["#2f6fed", "#f28c28", "#2fa36b", "#d64561", "#8e5bd6", "#1fa3b8", "#c9a227", "#7a7a7a"], cash_color: "#b9c2cf" },
+  charts: { trend_indexes: ["^N225"],  colors: ["#2f6fed", "#f28c28", "#2fa36b", "#d64561", "#8e5bd6", "#1fa3b8", "#c9a227", "#7a7a7a"], cash_color: "#b9c2cf" },
   stats: { period: "ytd", sort: "new" },
 };
 
@@ -323,6 +323,19 @@ export function assetsSeries(state, start, end) {
   const before = a.filter((x) => x.date < start); const inr = a.filter((x) => x.date >= start);
   return [...(before.length ? [before[before.length - 1]] : []), ...inr].map((x) => [x.date, +x.total_jpy]);
 }
+
+
+// ---------- 指数との比較（資産推移） ----------
+export const INDEXES = [["日経225", "^N225", "#9aa3af"], ["NASDAQ100", "^NDX", "#c0392b"], ["S&P500", "^GSPC", "#16a085"], ["SOX", "^SOX", "#8e44ad"], ["オルカン", "ACWI", "#d4a017"]];
+// 開始日以前の最後の値を起点にして、期間内の値を並べる（総資産の系列と同じ考え方）
+export function indexSeries(raw, start, end) {
+  const rows = (raw || []).filter(([d]) => d <= end).sort((a, b) => a[0].localeCompare(b[0]));
+  const before = rows.filter(([d]) => d <= start), inside = rows.filter(([d]) => d > start);
+  return [...(before.length ? [before[before.length - 1]] : []), ...inside].map(([d, v]) => [d, +v]);
+}
+// 起点からの変化率（%）の系列
+export const pctSeries = (pts) => (pts.length ? pts.map(([d, v]) => [d, (v / pts[0][1] - 1) * 100]) : []);
+export const changePct = (pts) => (pts.length >= 2 ? (pts[pts.length - 1][1] / pts[0][1] - 1) * 100 : null);
 
 // ---------- ホームの注意 ----------
 export function collectWarnings(state, cfg) {

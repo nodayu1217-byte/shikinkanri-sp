@@ -64,3 +64,12 @@ test("一部売り・置き直し・成績（勝率・RR・月の期間）", () 
   const sorted = R.sortTrades(st.trades, "pnl_asc"); assert.equal(sorted[0].code, "9984");
   assert.equal(R.monthOptions(s)[R.monthOptions(s).length - 1][0], "2026-05");
 });
+
+test("指数との比較：起点は開始日以前の最後の値、変化率は起点比", () => {
+  const raw = [["2026-01-05", 100], ["2026-01-09", 110], ["2026-01-16", 99], ["2026-02-02", 120]];
+  const p = R.indexSeries(raw, "2026-01-10", "2026-01-31");
+  assert.deepEqual(p, [["2026-01-09", 110], ["2026-01-16", 99]]);
+  assert.deepEqual(R.pctSeries(p).map(([d, v]) => [d, +v.toFixed(2)]), [["2026-01-09", 0], ["2026-01-16", -10]]);
+  assert.equal(+R.changePct(p).toFixed(2), -10);
+  assert.deepEqual(R.indexSeries(raw, "2026-03-01", "2026-03-31"), [["2026-02-02", 120]]);
+});

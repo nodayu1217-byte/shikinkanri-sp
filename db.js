@@ -1,5 +1,5 @@
 // データの保存（スマホの中）・バックアップの書き出しと読み込み・Mac 版への受け渡し用 CSV。
-import { DEFAULT_SETTINGS, enrichLots, activeLots, ACCOUNT_LABEL, SIDE_LABEL, EN_TYPE_LABEL, EX_TYPE_LABEL, nowStr, today } from "./rules.js";
+import { DEFAULT_SETTINGS, enrichLots, activeLots, ACCOUNT_LABEL, SIDE_LABEL, EN_TYPE_LABEL, EX_TYPE_LABEL, nowStr, today } from "./rules.js?v=3";
 
 const KEY = "shikinkanri.v1";
 export const SCHEMA_VERSION = 1;
