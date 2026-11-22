@@ -1,7 +1,7 @@
 // 画面（スマホ版）。計算は rules.js、保存は db.js。
-import * as R from "./rules.js?v=3";
-import * as DB from "./db.js?v=3";
-import * as C from "./csv.js?v=3";
+import * as R from "./rules.js?v=4";
+import * as DB from "./db.js?v=4";
+import * as C from "./csv.js?v=4";
 
 let S = DB.load();
 const cfg = () => S.settings;
@@ -13,7 +13,7 @@ let toastTimer = null;
 function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 3200); }
 const go = (hash) => { location.hash = hash; };
 
-const MENU = [["#home", "ホーム"], ["#buy", "買う・空売り"], ["#stats", "成績（勝率・RR比）"], ["#trend", "資産推移"], ["#review", "振り返り（取引ごと）"], ["#records", "記録（履歴・銘柄）"], ["#assets", "総資産の登録"], ["#settings", "設定（ルール・バックアップ）"]];
+const MENU = [["#home", "ホーム"], ["#buy", "買う・空売り"], ["#stats", "成績（勝率・RR比）"], ["#trend", "資産推移・指数と比較"], ["#review", "振り返り（取引ごと）"], ["#records", "記録（履歴・銘柄）"], ["#assets", "総資産の登録"], ["#settings", "設定（ルール・バックアップ）"]];
 const NAV = [["#home", "ホーム", "⌂"], ["#buy", "買う", "＋"], ["#stats", "成績", "％"], ["#review", "振り返り", "✎"], ["#records", "記録", "≡"]];
 
 // ---------- 部品 ----------
@@ -282,7 +282,7 @@ function trend() {
   let h = periodBar("trend", key, st.from || `${new Date().getFullYear()}-01-01`, st.to || R.today(), null) + `<div class="card">${lineChart(pts)}`;
   if (pts.length >= 2) { const a = pts[0][1], b = pts[pts.length - 1][1]; h += kv(`${pts[0][0]} → ${pts[pts.length - 1][0]}`, `${R.signed0(b - a)} 円（${R.signedPct((b / a - 1) * 100, 1)}）`, b >= a ? "plus" : "minus") + kv("期間の最高・最低", `${R.fmt0(Math.max(...pts.map((p) => p[1])) / 10000)}万 / ${R.fmt0(Math.min(...pts.map((p) => p[1])) / 10000)}万円`); }
   h += "</div>";
-  h += `<h2>指数と比べる（起点からの変化率）</h2><div class="chips" id="idx_chips">${R.INDEXES.map(([n, sym, col]) => `<span class="chip ${sel.includes(sym) ? "on" : ""}" data-sym="${sym}" style="${sel.includes(sym) ? `border-color:${col};color:${col}` : ""}">${esc(n)}</span>`).join("")}</div><div class="card" id="idx_card"><div class="muted">読み込み中…</div></div>`;
+  h += `<h2>指数と比較（起点からの変化率）</h2><div class="chips" id="idx_chips">${R.INDEXES.map(([n, sym, col]) => `<span class="chip ${sel.includes(sym) ? "on" : ""}" data-sym="${sym}" style="${sel.includes(sym) ? `border-color:${col};color:${col}` : ""}">${esc(n)}</span>`).join("")}</div><div class="card" id="idx_card"><div class="muted">読み込み中…</div></div>`;
   if (pts.length) h += `<h2>登録した値（新しい順）</h2><div class="card">${[...pts].reverse().slice(0, 20).map(([d, v]) => kv(d, R.yen(v))).join("")}</div>`;
   h += '<a class="btn sub" href="#assets">総資産を登録する</a>';
   $("#main").innerHTML = h; bindPeriod("trend");
