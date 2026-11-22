@@ -1,6 +1,7 @@
 // 画面（スマホ版）。計算は rules.js、保存は db.js。
 import * as R from "./rules.js";
 import * as DB from "./db.js";
+import * as C from "./csv.js";
 
 let S = DB.load();
 const cfg = () => S.settings;
@@ -311,6 +312,7 @@ function records(tab) {
   if (recTab === "lots") {
     const df = R.enrichLots(S.lots.filter((l) => showVoid || l.status === "active"), S.assets).sort((a, b) => (b.en_date + String(b.id).padStart(6, "0")).localeCompare(a.en_date + String(a.id).padStart(6, "0")));
     const closedSum = df.filter((r) => r.status === "active" && r.pnl_jpy != null).reduce((s, r) => s + r.pnl_jpy, 0);
+    h += `<a class="btn sub" href="#import">証券口座の CSV を取り込む（moomoo・SBI・楽天など）</a>`;
     h += `<div class="muted">確定損益の合計 ${R.signed0(closedSum)} 円　<span class="lnk" id="tg_void">${showVoid ? "取り消し済みを隠す" : "取り消し済みも見る"}</span></div><div class="card">`;
     if (!df.length) h += '<div class="muted">記録はありません</div>';
     for (const r of df) {
@@ -334,6 +336,48 @@ function records(tab) {
     if (el.dataset.act === "unvoid") { l.status = "active"; l.void_reason = null; save(); toast("戻しました"); records(); }
     if (el.dataset.act === "reopen") { if (!confirm(`${l.code} の手仕舞い（${l.ex_date} @ ${R.priceStr(l.ex_price)}）を取り消して保有中に戻しますか？`)) return; R.reopenLot(S, id); save(); toast("保有中に戻しました"); records(); }
     if (el.dataset.act === "stock") { const s = S.stocks.find((x) => x.code === el.dataset.code); const name = prompt("銘柄名", s.name); if (name === null) return; const ed = prompt("決算日（YYYY-MM-DD。なければ空欄）", s.earnings_date || ""); if (ed === null) return; s.name = name.trim() || s.name; s.earnings_date = ed.trim() || null; save(); records(); }
+  });
+}
+
+
+// ---------- 証券口座 CSV の取り込み ----------
+let imp = null;  // { rows, h, map, market, source, name }
+function importPage() {
+  setChrome("CSV 取り込み", "買い→新しい記録、売り→古い記録から手仕舞い", "#import");
+  let h = `<div class="card"><div class="muted">証券会社のアプリやサイトから出した取引履歴 CSV を選んでください（iPhone は「ファイル」、Android は「ダウンロード」に保存したもの）。見出しの言葉から列を推測します。</div>
+    <label for="im_file" class="btn" style="margin-top:12px">CSV ファイルを選ぶ</label><input id="im_file" type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" style="display:none">
+    ${select("市場（コードから判定できないとき）", "im_market", [["auto", "自動（4桁や英数字4文字は日本株、他は米国株）"], ["JP", "全部 日本株"], ["US", "全部 米国株"]], imp ? imp.market : "auto")}</div>`;
+  if (imp) {
+    const headers = imp.rows[imp.h];
+    const trades = C.markExisting(S, C.parseTrades(imp.rows, imp.h, imp.map, imp.market));
+    const sm = C.summarize(trades);
+    h += `<h2>${esc(imp.name)}</h2>`;
+    h += box(sm.ok ? "ok" : "warn", `読めた約定 <b>${sm.ok}</b> 件（買い ${sm.buys}・売り ${sm.sells}）／ 飛ばす ${sm.skipped} 件${sm.from ? `<br>${sm.from} 〜 ${sm.to}　銘柄: ${esc(sm.codes.join(" "))}` : ""}`);
+    h += `<button id="im_go" type="button" ${sm.ok ? "" : "disabled"}>${sm.ok} 件を登録する</button>`;
+    h += `<details class="card" ${sm.ok ? "" : "open"}><summary class="lnk" style="margin:0">列の割り当てを直す（見出しは ${imp.h + 1} 行目と判断）</summary>
+      ${Object.entries(C.FIELDS).map(([f, lab]) => select(lab, "im_map_" + f, [["", "（なし）"], ...headers.map((hd, j) => [j, hd || `${j + 1}列目`])], imp.map[f] ?? "")).join("")}</details>`;
+    h += `<div class="card">` + (trades.length ? trades.map((t) => `<div class="pos ${t.skip_reason ? "void" : ""}" style="text-decoration:none"><div><div class="n">${esc(t.code)} ${esc(t.name)}</div><div class="d">${t.date || "日付不明"}${t.time ? " " + t.time.slice(0, 5) : ""}　${t.side === "buy" ? "買い" : t.side === "sell" ? "売り" : "?"} ${t.qty != null ? R.fmt0(t.qty) : "?"} @ ${R.priceStr(t.price)}　${t.market === "JP" ? "日本株" : "米国株"}・${R.ACCOUNT_LABEL[t.account]}${t.skip_reason ? `<br><span class="minus">${esc(t.skip_reason)}</span>` : ""}</div></div></div>`).join("") : '<div class="muted">約定の行が見つかりません</div>') + `</div>`;
+    h += box("info", "取り込んだ保有は損切り値が空のまま入ります。ホームの注意から「損切り値」を入れてください。空売り・先物の行は取り込みません。");
+  }
+  $("#main").innerHTML = h;
+  $("#im_file").addEventListener("change", async (ev) => {
+    const f = ev.target.files[0]; if (!f) return;
+    try {
+      const rows = C.readCsvBytes(await f.arrayBuffer()); const hr = C.detectHeaderRow(rows);
+      imp = { rows, h: hr, map: C.guessMapping(rows[hr]), market: val("im_market") || "auto", source: f.name.replace(/\.[^.]+$/, ""), name: f.name };
+      importPage();
+    } catch (e) { toast("読めませんでした: " + e.message); }
+  });
+  $("#im_market").addEventListener("change", () => { if (imp) { imp.market = val("im_market"); importPage(); } });
+  if (!imp) return;
+  for (const f of Object.keys(C.FIELDS)) $("#im_map_" + f).addEventListener("change", (ev) => { const v = ev.target.value; if (v === "") delete imp.map[f]; else imp.map[f] = +v; importPage(); });
+  $("#im_go").addEventListener("click", () => {
+    const trades = C.markExisting(S, C.parseTrades(imp.rows, imp.h, imp.map, imp.market)); const sm = C.summarize(trades);
+    if (!confirm(`${sm.ok} 件の約定を登録します（買い ${sm.buys}・売り ${sm.sells}）。よろしいですか？`)) return;
+    let res; try { res = C.importTrades(S, trades, imp.source); } catch (e) { toast("登録できませんでした: " + e.message); return; }
+    save(); imp = null;
+    $("#main").innerHTML = box("ok", `✓ 新しい記録 ${res.lots} 件・手仕舞い ${res.closed} 件を登録しました。`) + (res.warnings.length ? box("warn", `<ul class="w">${res.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>`) : "") + `<a class="btn" href="#home">ホームへ</a><a class="btn sub" href="#records/lots">売買の履歴を見る</a>`;
+    window.scrollTo(0, 0);
   });
 }
 
@@ -388,7 +432,7 @@ function settings() {
 function route() {
   const [page, arg] = (location.hash || "#home").slice(1).split("/");
   try {
-    ({ home, buy, stats, trend, review: () => review(arg), records: () => records(arg), assets: () => assets(arg), settings,
+    ({ home, buy, stats, trend, review: () => review(arg), records: () => records(arg), assets: () => assets(arg), settings, import: importPage,
       sell: () => sell(arg), reset: () => reset(arg), sl: () => slEdit(arg) }[page] || home)();
   } catch (e) { $("#main").innerHTML = box("warn", "画面を出せませんでした: " + esc(e.message)); console.error(e); }
 }
