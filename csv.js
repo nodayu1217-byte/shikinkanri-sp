@@ -1,6 +1,6 @@
 // 証券口座（moomoo・SBI・楽天など）の取引履歴 CSV を読み、買い→新しい記録、売り→古い記録から手仕舞い として登録する。
 // Mac 版の broker_csv.py を移植。列名は会社ごとに違うので、見出しの言葉から推測し、画面で直せるようにする。
-import { insertLot, closeLot, splitLot, upsertStock, isJpCode, log } from "./rules.js?v=4";
+import { insertLot, closeLot, splitLot, upsertStock, isJpCode, log } from "./rules.js?v=5";
 
 export const FIELDS = { date: "約定日", code: "銘柄コード", name: "銘柄名", side: "売買", qty: "数量", price: "単価", account: "現物/信用", market: "市場" };
 export const KEYWORDS = {

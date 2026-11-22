@@ -3,7 +3,7 @@
   python scripts/fetch_indices.py
 
 出力: {"updated": "YYYY-MM-DD HH:MM", "series": {"^N225": [["YYYY-MM-DD", 終値], ...], ...}}
-スマホ版の「資産推移」が ./data/indices.json を読んで、総資産の変化率と比べる。
+スマホ版の「資産推移」が ./data/indices.json を読んで、総資産の変化率と比べる。USDJPY は為替が未登録のときの円換算に使う。
 """
 import datetime as dt
 import json
@@ -13,7 +13,8 @@ import warnings
 warnings.filterwarnings("ignore")
 import yfinance as yf  # noqa: E402
 
-SYMBOLS = ["^N225", "^NDX", "^GSPC", "^SOX", "ACWI"]
+SYMBOLS = ["^N225", "^NDX", "^GSPC", "^SOX", "ACWI", "JPY=X"]
+KEYS = {"JPY=X": "USDJPY"}  # アプリの中での名前
 OUT = pathlib.Path(__file__).resolve().parent.parent / "data" / "indices.json"
 
 def main() -> None:
@@ -22,11 +23,11 @@ def main() -> None:
     series = {}
     for sym in SYMBOLS:
         s = df[sym].dropna() if sym in df else []
-        series[sym] = [[d.strftime("%Y-%m-%d"), round(float(v), 2)] for d, v in s.items()]
+        series[KEYS.get(sym, sym)] = [[d.strftime("%Y-%m-%d"), round(float(v), 2)] for d, v in s.items()]
     old = json.loads(OUT.read_text()) if OUT.exists() else {"series": {}}
-    for sym, rows in series.items():  # 取れなかった日は前回の値を残す
-        if len(rows) < 10 and old["series"].get(sym):
-            series[sym] = old["series"][sym]
+    for key, rows in list(series.items()):  # 取れなかったときは前回の値を残す
+        if len(rows) < 10 and old["series"].get(key):
+            series[key] = old["series"][key]
     OUT.parent.mkdir(exist_ok=True)
     OUT.write_text(json.dumps({"updated": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"), "series": series}, ensure_ascii=False, separators=(",", ":")))
     print({k: (len(v), v[-1][0] if v else None) for k, v in series.items()})

@@ -1,9 +1,10 @@
 // 画面（スマホ版）。計算は rules.js、保存は db.js。
-import * as R from "./rules.js?v=4";
-import * as DB from "./db.js?v=4";
-import * as C from "./csv.js?v=4";
+import * as R from "./rules.js?v=5";
+import * as DB from "./db.js?v=5";
+import * as C from "./csv.js?v=5";
 
 let S = DB.load();
+try { R.setFxTable(JSON.parse(localStorage.getItem("shikinkanri.fx") || "[]")); } catch (e) { /* なければ空 */ }
 const cfg = () => S.settings;
 const $ = (sel) => document.querySelector(sel);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -76,7 +77,7 @@ function home() {
       const sl = !sls.length ? "未設定" : sls.length < g.length ? "一部未設定" : new Set(sls).size === 1 ? R.priceStr(sls[0]) : `${R.priceStr(Math.min(...sls))}〜${R.priceStr(Math.max(...sls))}`;
       const acct = g[0].fut ? "先物" : R.ACCOUNT_LABEL[g[0].account];
       h += `<div class="pos"><div><div class="n">${esc(code)} ${esc(R.stockName(S, code))}</div><div class="d">${R.SIDE_LABEL[side]}・${acct}　損切り値 ${esc(sl)}</div></div>
-        <div class="r"><div class="n">${R.qtyStr(code, shares)}</div><div class="d">${g.length > 1 ? "平均 " : ""}${R.priceStr(avg)}　${R.pct(g.reduce((a, l) => a + (l.pct_of_assets || 0), 0))}</div></div></div>`;
+        <div class="r"><div class="n">${R.qtyStr(code, shares)}</div><div class="d">${g.length > 1 ? "平均 " : ""}${R.priceStr(avg)}${g[0].market === "US" ? "ドル" : ""}　${R.pct(g.reduce((a, l) => a + (l.pct_of_assets || 0), 0))}${g[0].market === "US" && !g[0].fut ? `<br>≒ ${R.man(g.reduce((a, l) => a + l.amount_jpy, 0))}` : ""}</div></div></div>`;
       for (const l of g) h += `<div class="lot"><span>${esc(l.original_en_date || l.en_date)}　${R.priceStr(l.en_price)}${l.en_type === "reset" ? "（置き直し）" : ""}　${R.qtyStr(code, l.shares)}</span><span><a href="#sl/${l.id}">損切り値</a><a href="#reset/${l.id}">置き直し</a><a href="#sell/${l.id}">${side === "short" ? "買い戻す" : "売る"}</a></span></div>`;
     }
     h += "</div>";
@@ -125,6 +126,7 @@ function buyPreview() {
   if (pv.suggested_shares) h += `<button type="button" class="sub" id="b_fill">目安の ${R.fmt0(pv.suggested_shares)} ${R.qtyWord(f.code)} を数量に入れる</button>`;
   h += kv("許せる損失の上限", R.yen(pv.max_risk_amount)) + kv("損切り時の損失", pv.risk_amount != null ? `${R.yen(pv.risk_amount)}（${R.pct(pv.risk_pct)}）` : "損切り値を入れると出ます")
     + kv(fut ? "想定元本" : short ? "売る金額" : "買う金額", fut && pv.notional_x != null ? `${R.yen(pv.amount)}（総資産の ${pv.notional_x.toFixed(1)} 倍）` : `${R.yen(pv.amount)}（${R.pct(pv.amount_pct)}）`)
+    + (pv.fx && pv.fx !== 1 ? kv("ドル建て・為替", `$${R.priceStr(pv.amount_local)}　1ドル ${pv.fx.toFixed(2)} 円`) : "")
     + kv("株の割合（登録後）", `${R.pct(pv.invested_pct_before)} → ${R.pct(pv.invested_pct_after)}`) + kv("銘柄数（登録後）", `${pv.n_positions_after}（上限 ${cfg().risk.max_positions}）`)
     + kv("全損切り時の損失（登録後）", `${R.pct(pv.total_sl_loss_pct)}（上限 ${cfg().risk.max_total_loss_pct}%）`);
   if (pv.warnings.length) h += box("warn", "⚠ ルールから外れています<br>" + pv.warnings.map((w) => "・" + esc(w)).join("<br>")); else if (shares > 0) h += box("ok", "✓ ルールの範囲内です");
@@ -274,6 +276,11 @@ function compareChart(series) {
     return `<polyline points="${p}" fill="none" stroke="${s.color}" stroke-width="${i === 0 ? 2.6 : 1.6}" stroke-linejoin="round"${i === 0 ? "" : ' stroke-opacity=".9"'}/><circle cx="${X(new Date(last[0]).getTime()).toFixed(1)}" cy="${Y(last[1]).toFixed(1)}" r="3" fill="${s.color}"/>`; }).join("");
   const d0 = all.map(([d]) => d).sort()[0], d1 = all.map(([d]) => d).sort().at(-1);
   return `<svg class="chart" viewBox="0 0 ${W} ${H}">${g}${lines}<text x="${L}" y="${H - 8}" font-size="10" fill="currentColor" fill-opacity=".7">${d0}</text><text x="${W - Rr}" y="${H - 8}" text-anchor="end" font-size="10" fill="currentColor" fill-opacity=".7">${d1}</text></svg>`;
+}
+function applyFx(data) {
+  const rows = data && data.series && data.series.USDJPY; if (!rows || !rows.length) return false;
+  R.setFxTable(rows); try { localStorage.setItem("shikinkanri.fx", JSON.stringify(rows.slice(-400))); } catch (e) { /* 保存できなくても動く */ }
+  return true;
 }
 function trend() {
   const st = cfg().stats; const key = st.period || "ytd"; const [start, end] = R.periodRange(key, [st.from || `${new Date().getFullYear()}-01-01`, st.to || R.today()]);
@@ -427,7 +434,7 @@ function assets(date) {
   setChrome("総資産の登録", "", "#assets"); const last = R.latestAssets(S.assets); const cur = date ? S.assets.find((a) => a.date === date) : null;
   $("#main").innerHTML = `<div class="card">${last ? `<div class="muted">最新: ${last.date}　${R.yen(last.total_jpy)}${last.usd_jpy ? `　為替 ${(+last.usd_jpy).toFixed(2)}` : ""}</div>` : ""}
     ${field("日付", "a_date", cur ? cur.date : R.today(), "date")}${field("総資産（円。証券口座の評価額の合計）", "a_total", cur ? cur.total_jpy : last ? Math.round(last.total_jpy) : "", "number", { step: "1" })}
-    ${field("為替 USD/JPY（米国株・米国先物がなければ空欄）", "a_fx", cur ? cur.usd_jpy ?? "" : last && last.usd_jpy ? (+last.usd_jpy).toFixed(2) : "", "number", { step: "0.01" })}${field("メモ", "a_memo", cur ? cur.memo || "" : "")}
+    ${field(`為替 USD/JPY（空欄なら自動${R.autoFx() ? `：${R.autoFx().toFixed(2)} 円（${R.autoFxDate()}）` : ""}。証券口座の値を使いたいときだけ入力）`, "a_fx", cur ? cur.usd_jpy ?? "" : "", "number", { step: "0.01", placeholder: R.autoFx() ? R.autoFx().toFixed(2) : "" })}${field("メモ", "a_memo", cur ? cur.memo || "" : "")}
     <button id="a_save" type="button">登録する</button></div><div class="muted">週に1回（金曜の夜）と、入出金のあとに更新する想定です。投入割合・損失率は全部この最新の値で割り直します。</div>`;
   $("#a_save").addEventListener("click", () => { const t = num(val("a_total")); if (t <= 0) { toast("総資産を入れてください"); return; } R.upsertAssets(S, val("a_date"), t, num(val("a_fx")) || null, val("a_memo")); save(); toast(`✓ ${val("a_date")} の総資産 ${R.yen(t)} を登録しました`); go("#home"); });
 }
@@ -479,4 +486,5 @@ function route() {
 }
 window.addEventListener("hashchange", route);
 route();
+loadIndices().then((d) => { if (applyFx(d) && (location.hash || "#home").match(/^#(home|buy|assets|sell|reset)/)) route(); });
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(() => {});

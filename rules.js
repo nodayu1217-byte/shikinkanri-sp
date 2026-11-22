@@ -51,9 +51,19 @@ export function latestAssets(assets, onOrBefore = null) {
   const rows = assets.filter((a) => !onOrBefore || a.date <= onOrBefore).sort((a, b) => (a.date < b.date ? 1 : -1));
   return rows[0] || null;
 }
+// 自動取得したドル円（data/indices.json の USDJPY）。総資産で為替を入れていない日の代わりに使う
+let FX_TABLE = [];
+export function setFxTable(rows) { FX_TABLE = (rows || []).map(([d, v]) => [d, +v]).filter(([, v]) => v > 0).sort((a, b) => a[0].localeCompare(b[0])); }
+export function autoFx(onOrBefore = null) {
+  const rows = onOrBefore ? FX_TABLE.filter(([d]) => d <= onOrBefore) : FX_TABLE;
+  return rows.length ? rows[rows.length - 1][1] : (FX_TABLE.length ? FX_TABLE[0][1] : null);
+}
+export const autoFxDate = () => (FX_TABLE.length ? FX_TABLE[FX_TABLE.length - 1][0] : null);
+// 為替：その日以前に自分で入れた値 → なければ自動取得の値 → それもなければ後の日の自分の値
 export function fxRate(assets, onOrBefore = null) {
   const rows = assets.filter((a) => a.usd_jpy && (!onOrBefore || a.date <= onOrBefore)).sort((a, b) => (a.date < b.date ? 1 : -1));
   if (rows.length) return +rows[0].usd_jpy;
+  const auto = autoFx(onOrBefore); if (auto) return auto;
   const any = assets.filter((a) => a.usd_jpy).sort((a, b) => (a.date < b.date ? 1 : -1));
   return any.length ? +any[0].usd_jpy : null;
 }
@@ -136,11 +146,11 @@ export function enPreview(state, cfg, code, market, en, shares, sl, side = "long
     invested_pct_before: total ? investedNow / total * 100 : null,
     invested_pct_after: total ? (investedNow + (fut ? 0 : amount)) / total * 100 : null,
     n_positions_after: nAfter, total_sl_loss_pct: total ? totalSl / total * 100 : null, warnings: [], notes: [],
-    fx_missing: market === "US" && !fx,
+    fx_missing: market === "US" && !fx, fx, amount_local: en * shares * unit,
   };
   const r = cfg.risk;
   if (total == null) { out.warnings.push("総資産が未登録です。「総資産」から登録してください。"); return out; }
-  if (out.fx_missing) { out.amount = out.amount_pct = out.risk_amount = out.risk_pct = out.invested_pct_after = null; out.warnings.push("為替（USD/JPY）が未登録なので円に直せません。「総資産」で為替を入れてください。"); return out; }
+  if (out.fx_missing) { out.amount = out.amount_pct = out.risk_amount = out.risk_pct = out.invested_pct_after = null; out.warnings.push("為替（USD/JPY）がまだ取れていないので円に直せません。ネットにつないで開き直すか、「総資産」で為替を入れてください。"); return out; }
   if (!sl) out.warnings.push("損切り値が未設定です。目安の株数と損失額が計算できません。");
   else if (!slOk) out.warnings.push(short ? "損切り値が売値以下になっています（空売りの損切り値は売値より上に置きます）。" : "損切り値が買値以上になっています。");
   if (risk != null && maxRisk && risk > maxRisk) out.warnings.push(`損切りになったときの損失 ${fmt0(risk)} 円が、許せる上限 ${fmt0(maxRisk)} 円を超えています（目安 ${fmt0(sug)} ${uw}）。`);

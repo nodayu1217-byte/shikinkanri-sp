@@ -73,3 +73,16 @@ test("指数との比較：起点は開始日以前の最後の値、変化率�
   assert.equal(+R.changePct(p).toFixed(2), -10);
   assert.deepEqual(R.indexSeries(raw, "2026-03-01", "2026-03-31"), [["2026-02-02", 120]]);
 });
+
+test("為替：自分で入れた値が優先、なければ自動取得のドル円、その日以前の最後の値", () => {
+  const s = fresh(); R.upsertAssets(s, "2026-10-01", 10_000_000, null);
+  R.setFxTable([["2026-09-30", 150], ["2026-10-05", 152], ["2026-10-10", 155]]);
+  assert.equal(R.fxRate(s.assets, "2026-10-07"), 152); assert.equal(R.fxRate(s.assets), 155); assert.equal(R.fxRate(s.assets, "2026-01-01"), 150);
+  R.insertLot(s, { code: "AAPL", market: "US", account: "margin", en_date: "2026-10-06", en_price: 200, shares: 10 });
+  assert.equal(R.enrichLots(R.openLots(s.lots), s.assets)[0].amount_jpy, 200 * 10 * 152);
+  R.upsertAssets(s, "2026-10-08", 10_000_000, 160);
+  assert.equal(R.fxRate(s.assets, "2026-10-09"), 160); assert.equal(R.fxRate(s.assets, "2026-10-07"), 152);
+  const pv = R.enPreview(s, cfg, "NVDA", "US", 100, 10, 90);
+  assert.equal(pv.fx, 160); assert.equal(pv.amount_local, 1000); assert.equal(pv.fx_missing, false);
+  R.setFxTable([]);
+});
