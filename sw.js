@@ -1,6 +1,6 @@
 // オフラインでも開けるように、アプリの部品をまるごと保存しておく（データは localStorage なのでここには入らない）
-const VERSION = "shikinkanri-sp-v6";
-const FILES = ["./", "./index.html", "./app.css", "./app.js", "./rules.js", "./db.js", "./csv.js", "./data/indices.json", "./manifest.webmanifest",
+const VERSION = "shikinkanri-sp-v7";
+const FILES = ["./", "./index.html", "./app.css", "./app.js", "./rules.js", "./db.js", "./csv.js", "./charts.js", "./data/indices.json", "./manifest.webmanifest",
   "./icons/icon-180.png", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/maskable-512.png"];
 
 self.addEventListener("install", (e) => {

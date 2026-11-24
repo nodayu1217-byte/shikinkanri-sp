@@ -1,7 +1,8 @@
 // 画面（スマホ版）。計算は rules.js、保存は db.js。
-import * as R from "./rules.js?v=6";
-import * as DB from "./db.js?v=6";
-import * as C from "./csv.js?v=6";
+import * as R from "./rules.js?v=7";
+import * as DB from "./db.js?v=7";
+import * as C from "./csv.js?v=7";
+import * as CH from "./charts.js?v=7";
 
 let S = DB.load();
 try { R.setFxTable(JSON.parse(localStorage.getItem("shikinkanri.fx") || "[]")); } catch (e) { /* なければ空 */ }
@@ -76,8 +77,9 @@ function home() {
       const sls = g.map((l) => l.sl_price).filter((x) => x != null);
       const sl = !sls.length ? "未設定" : sls.length < g.length ? "一部未設定" : new Set(sls).size === 1 ? R.priceStr(sls[0]) : `${R.priceStr(Math.min(...sls))}〜${R.priceStr(Math.max(...sls))}`;
       const acct = g[0].fut ? "先物" : R.ACCOUNT_LABEL[g[0].account];
-      h += `<div class="pos"><div><div class="n">${esc(code)} ${esc(R.stockName(S, code))}</div><div class="d">${R.SIDE_LABEL[side]}・${acct}　損切り値 ${esc(sl)}</div></div>
-        <div class="r"><div class="n">${R.qtyStr(code, shares)}</div><div class="d">${g.length > 1 ? "平均 " : ""}${R.priceStr(avg)}${g[0].market === "US" ? "ドル" : ""}　${R.pct(g.reduce((a, l) => a + (l.pct_of_assets || 0), 0))}${g[0].market === "US" && !g[0].fut ? `<br>≒ ${R.man(g.reduce((a, l) => a + l.amount_jpy, 0))}` : ""}</div></div></div>`;
+      const pctAll = g.reduce((a, l) => a + (l.pct_of_assets || 0), 0), amtAll = g.reduce((a, l) => a + l.amount_jpy, 0);
+      h += `<div class="pos"><div style="min-width:0"><div class="n">${esc(code)} ${esc(R.stockName(S, code))}　<span class="qty">${R.qtyStr(code, shares)}</span></div><div class="d">${R.SIDE_LABEL[side]}・${acct}　損切り値 ${esc(sl)}</div></div>
+        <div class="r two"><div><span class="k">${g.length > 1 ? "平均" : "買値"}</span><span class="v">${R.priceStr(avg)}${g[0].market === "US" ? "ドル" : "円"}</span></div><div><span class="k">総資産比</span><span class="v">${R.pct(pctAll)}${g[0].market === "US" && !g[0].fut ? `（≒${R.man(amtAll)}）` : ""}</span></div></div></div>`;
       for (const l of g) h += `<div class="lot"><span>${esc(l.original_en_date || l.en_date)}　${R.priceStr(l.en_price)}${l.en_type === "reset" ? "（置き直し）" : ""}　${R.qtyStr(code, l.shares)}</span><span><a href="#sl/${l.id}">損切り値</a><a href="#reset/${l.id}">置き直し</a><a href="#sell/${l.id}">${side === "short" ? "買い戻す" : "売る"}</a></span></div>`;
     }
     h += "</div>";
@@ -282,22 +284,31 @@ function applyFx(data) {
   R.setFxTable(rows); try { localStorage.setItem("shikinkanri.fx", JSON.stringify(rows.slice(-400))); } catch (e) { /* 保存できなくても動く */ }
   return true;
 }
+let tview = null, tviewKey = "";   // 資産推移の表示範囲（つまむ・ドラッグで変わる）。期間や見方を変えたら戻す
 function trend() {
   const st = cfg().stats; const key = st.period || "ytd"; const [start, end] = R.periodRange(key, [st.from || `${new Date().getFullYear()}-01-01`, st.to || R.today()]);
   const mode = st.trend_mode === "trades" ? "trades" : "assets";
   const est = R.tradesSeries(S, start, end);
   const pts = mode === "trades" ? (est || []) : R.assetsSeries(S, start, end); setChrome("資産推移", R.periodLabel(key, start, end), "#trend");
   const sel = cfg().charts.trend_indexes || [];
+  const vk = `${key}|${start}|${end}|${mode}`; if (tviewKey !== vk || !tview) { tview = CH.fullView(pts); tviewKey = vk; }
+  const bounds = CH.fullView(pts);
   let h = periodBar("trend", key, st.from || `${new Date().getFullYear()}-01-01`, st.to || R.today(), null)
     + `<div class="tabs"><a href="#trend" data-mode="assets" class="${mode === "assets" ? "on" : ""}">登録した総資産</a><a href="#trend" data-mode="trades" class="${mode === "trades" ? "on" : ""}">売買から推定</a></div>`
-    + `<div class="card">${mode === "trades" && !est ? '<div class="muted">総資産の登録が1件もないので推定できません。一度「総資産を登録する」で基準の金額を入れてください。</div>' : lineChart(pts)}`;
+    + `<div class="card tight">${mode === "trades" && !est ? '<div class="muted">総資産の登録が1件もないので推定できません。一度「総資産を登録する」で基準の金額を入れてください。</div>' : `<div id="chart_main" class="gest"></div><div class="muted small center">つまむ／ホイールで期間の拡大縮小、ドラッグで移動　<span class="lnk" id="tv_reset">表示を戻す</span></div>`}`;
   if (pts.length >= 2) { const a = pts[0][1], b = pts[pts.length - 1][1]; h += kv(`${pts[0][0]} → ${pts[pts.length - 1][0]}`, `${R.signed0(b - a)} 円（${R.signedPct((b / a - 1) * 100, 1)}）`, b >= a ? "plus" : "minus") + kv("期間の最高・最低", `${R.fmt0(Math.max(...pts.map((p) => p[1])) / 10000)}万 / ${R.fmt0(Math.min(...pts.map((p) => p[1])) / 10000)}万円`); }
   h += "</div>";
-  h += `<h2>指数と比較（起点からの変化率）</h2><div class="chips" id="idx_chips">${R.INDEXES.map(([n, sym, col]) => `<span class="chip ${sel.includes(sym) ? "on" : ""}" data-sym="${sym}" style="${sel.includes(sym) ? `border-color:${col};color:${col}` : ""}">${esc(n)}</span>`).join("")}</div><div class="card" id="idx_card"><div class="muted">読み込み中…</div></div>`;
+  h += `<h2>指数と比較（起点からの変化率）</h2><div class="chips" id="idx_chips">${R.INDEXES.map(([n, sym, col]) => `<span class="chip ${sel.includes(sym) ? "on" : ""}" data-sym="${sym}" style="${sel.includes(sym) ? `border-color:${col};color:${col}` : ""}">${esc(n)}</span>`).join("")}</div><div class="card tight" id="idx_card"><div class="muted">読み込み中…</div></div>`;
   if (mode === "trades") h += box("info", `一番新しい総資産の登録（${R.latestAssets(S.assets) ? R.latestAssets(S.assets).date : "-"}）を基準に、手仕舞いで確定した損益を日ごとに足し引きした推定です。含み損益・入出金・税は入りません。点は手仕舞いのあった日です。`);
   if (pts.length) h += `<h2>${mode === "trades" ? "推定した値" : "登録した値"}（新しい順）</h2><div class="card">${[...pts].reverse().slice(0, 20).map(([d, v]) => kv(d, R.yen(v))).join("")}</div>`;
   h += '<a class="btn sub" href="#assets">総資産を登録する</a>';
   $("#main").innerHTML = h; bindPeriod("trend");
+  let cmpSeries = null;
+  const draw = () => { const m = $("#chart_main"); if (m) m.innerHTML = CH.lineSvg(pts, tview); const c = $("#chart_cmp"); if (c && cmpSeries) c.innerHTML = CH.compareSvg(cmpSeries, tview); };
+  const setView = (v) => { tview = CH.clampView(v, bounds); draw(); };
+  draw();
+  const gm = $("#chart_main"); if (gm) CH.attachGestures(gm, () => tview, setView);
+  const rs = $("#tv_reset"); if (rs) rs.addEventListener("click", () => setView(bounds));
   $("#main").addEventListener("click", (ev) => { const a = ev.target.closest("[data-mode]"); if (!a) return; ev.preventDefault(); st.trend_mode = a.dataset.mode; save(); trend(); });
   $("#idx_chips").addEventListener("click", (ev) => { const c = ev.target.closest("[data-sym]"); if (!c) return; const arr = cfg().charts.trend_indexes || []; const i = arr.indexOf(c.dataset.sym); if (i >= 0) arr.splice(i, 1); else arr.push(c.dataset.sym); cfg().charts.trend_indexes = arr; save(); trend(); });
   loadIndices().then((data) => {
@@ -307,15 +318,15 @@ function trend() {
     const d0 = pts[0][0], d1 = pts[pts.length - 1][0];
     const series = [{ name: "総資産", color: "var(--accent)", pts: R.pctSeries(pts) }]; const missing = [];
     for (const [n, sym, col] of R.INDEXES) { if (!sel.includes(sym)) continue; const p = R.indexSeries((data.series || {})[sym], d0, d1); if (p.length >= 2) series.push({ name: n, color: col, pts: R.pctSeries(p), chg: R.changePct(p) }); else missing.push(n); }
-    const base = R.changePct(pts);
-    let out = compareChart(series);
+    const base = R.changePct(pts); cmpSeries = series;
+    let out = `<div id="chart_cmp" class="gest"></div>`;
     out += `<div class="kv"><span class="k">${d0} → ${d1}</span><span class="k">騰落率　総資産との差</span></div>`;
     out += `<div class="kv"><span class="k" style="color:var(--accent);font-weight:700">■ 総資産</span><span class="v">${R.signedPct(base, 1)}</span></div>`;
     for (const s2 of series.slice(1)) out += `<div class="kv"><span class="k" style="color:${s2.color};font-weight:700">■ ${esc(s2.name)}</span><span class="v">${R.signedPct(s2.chg, 1)}　<span class="${base - s2.chg >= 0 ? "plus" : "minus"}">${base - s2.chg >= 0 ? "+" : "−"}${Math.abs(base - s2.chg).toFixed(1)}pt</span></span></div>`;
     if (series.length === 1) out += '<div class="muted">上の名前を押すと、その指数の線が重なります。</div>';
     if (missing.length) out += `<div class="muted">取得できず: ${esc(missing.join("、"))}</div>`;
-    out += `<div class="muted">起点は開始日以前の最後の総資産の登録日。指数の値は毎朝自動更新（最終 ${esc((data.updated || "").slice(0, 10))}）。総資産は入出金も含むので目安です。</div>`;
-    card.innerHTML = out;
+    out += `<div class="muted">起点は開始日以前の最後の総資産の登録日。表示範囲は上のグラフと連動します。指数の値は毎朝自動更新（最終 ${esc((data.updated || "").slice(0, 10))}）。総資産は入出金も含むので目安です。</div>`;
+    card.innerHTML = out; draw(); CH.attachGestures($("#chart_cmp"), () => tview, setView);
   });
 }
 
