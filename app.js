@@ -1,8 +1,8 @@
 // 画面（スマホ版）。計算は rules.js、保存は db.js。
-import * as R from "./rules.js?v=7";
-import * as DB from "./db.js?v=7";
-import * as C from "./csv.js?v=7";
-import * as CH from "./charts.js?v=7";
+import * as R from "./rules.js?v=8";
+import * as DB from "./db.js?v=8";
+import * as C from "./csv.js?v=8";
+import * as CH from "./charts.js?v=8";
 
 let S = DB.load();
 try { R.setFxTable(JSON.parse(localStorage.getItem("shikinkanri.fx") || "[]")); } catch (e) { /* なければ空 */ }

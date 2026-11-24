@@ -357,7 +357,7 @@ export function tradesSeries(state, start = null, end = null) {
 }
 
 // ---------- 指数との比較（資産推移） ----------
-export const INDEXES = [["日経225", "^N225", "#9aa3af"], ["NASDAQ100", "^NDX", "#c0392b"], ["S&P500", "^GSPC", "#16a085"], ["SOX", "^SOX", "#8e44ad"], ["オルカン", "ACWI", "#d4a017"]];
+export const INDEXES = [["日経225", "^N225", "#9aa3af"], ["NASDAQ100", "^NDX", "#D55E00"], ["S&P500", "^GSPC", "#009E73"], ["SOX", "^SOX", "#CC79A7"], ["オルカン", "ACWI", "#E69F00"]];
 // 開始日以前の最後の値を起点にして、期間内の値を並べる（総資産の系列と同じ考え方）
 export function indexSeries(raw, start, end) {
   const rows = (raw || []).filter(([d]) => d <= end).sort((a, b) => a[0].localeCompare(b[0]));

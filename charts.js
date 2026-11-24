@@ -1,6 +1,6 @@
 // 資産推移のグラフ（大きめ・つまむ／ホイールで期間の拡大縮小・ドラッグで移動）。
 // 線は SVG で描き、表示している期間（view = {x0, x1}、ミリ秒）だけを切り出す。縦軸は見えている点に合わせて毎回取り直す。
-import { fmt0 } from "./rules.js?v=7";
+import { fmt0 } from "./rules.js?v=8";
 
 export const DAY = 86400000;
 export const ms = (d) => Date.parse(d);                       // "YYYY-MM-DD" → UTC 0時
