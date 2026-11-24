@@ -1,12 +1,15 @@
 // 画面（スマホ版）。計算は rules.js、保存は db.js。
-import * as R from "./rules.js?v=8";
-import * as DB from "./db.js?v=8";
-import * as C from "./csv.js?v=8";
-import * as CH from "./charts.js?v=8";
+import * as R from "./rules.js?v=9";
+import * as DB from "./db.js?v=9";
+import * as C from "./csv.js?v=9";
+import * as CH from "./charts.js?v=9";
 
 let S = DB.load();
 try { R.setFxTable(JSON.parse(localStorage.getItem("shikinkanri.fx") || "[]")); } catch (e) { /* なければ空 */ }
 const cfg = () => S.settings;
+const applyTheme = () => { const t = (cfg().ui || {}).theme; const el = document.documentElement; if (t === "light" || t === "dark") el.dataset.theme = t; else delete el.dataset.theme; };
+applyTheme();
+R.setFuturesPrincipal(cfg().futures_principal || {});
 const $ = (sel) => document.querySelector(sel);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const num = (v, d = 0) => { const x = parseFloat(String(v ?? "").replace(/,/g, "")); return Number.isFinite(x) ? x : d; };
@@ -43,27 +46,34 @@ function setChrome(title, cap, hash) {
 // ---------- ホーム ----------
 function donut(items, total) {
   if (!total) return "";
+  // 保有割合の多い順。現金は最後。合計が総資産を超える（信用・先物）ときは合計を1周にする
+  const pos = items.filter(([n, v]) => n !== "現金" && v > 0).sort((a, b) => b[1] - a[1]);
+  const list = [...pos, ...items.filter(([n, v]) => n === "現金" && v > 0)];
+  const whole = Math.max(total, list.reduce((a, [, v]) => a + v, 0));
   const r = 42, c = 2 * Math.PI * r; let off = 0; let segs = "";
-  for (const [, v, col] of items) { const len = Math.max(0, v / total) * c; segs += `<circle r="${r}" cx="60" cy="60" fill="none" stroke="${col}" stroke-width="16" stroke-dasharray="${len} ${c - len}" stroke-dashoffset="${-off}" transform="rotate(-90 60 60)"/>`; off += len; }
-  const stockPct = items.filter(([n]) => n !== "現金").reduce((s, [, v]) => s + v, 0) / total * 100;
-  return `<div style="display:flex;align-items:center;gap:14px"><svg viewBox="0 0 120 120" width="120" height="120">${segs}<text x="60" y="57" text-anchor="middle" font-size="16" font-weight="700" fill="currentColor">株 ${stockPct.toFixed(0)}%</text><text x="60" y="74" text-anchor="middle" font-size="10" fill="currentColor" fill-opacity=".7">現金 ${(100 - stockPct).toFixed(0)}%</text></svg>
-    <div class="small">${items.map(([n, v, col]) => `<div><span class="swatch" style="background:${col};width:12px;height:12px;border-radius:3px"></span> ${esc(n)} ${(v / total * 100).toFixed(1)}%</div>`).join("")}</div></div>`;
+  for (const [, v, col] of list) { const len = v / whole * c; segs += `<circle r="${r}" cx="60" cy="60" fill="none" stroke="${col}" stroke-width="16" stroke-dasharray="${len} ${c - len}" stroke-dashoffset="${-off}" transform="rotate(-90 60 60)"/>`; off += len; }
+  return `<div style="display:flex;align-items:center;gap:10px"><svg viewBox="0 0 120 120" width="104" height="104" style="flex:0 0 auto">${segs}<text x="60" y="61" text-anchor="middle" dominant-baseline="central" font-size="38" font-weight="700" fill="currentColor">${pos.length}</text></svg>
+    <div class="lg">${list.map(([n, v, col]) => `<div><span class="swatch" style="background:${col};width:14px;height:14px;border-radius:3px;flex:0 0 auto"></span><span class="nm">${esc(n)}</span><b>${(v / total * 100).toFixed(1)}%</b></div>`).join("")}</div></div>`;
 }
 function home() {
   const s = R.portfolioSummary(S); const r = cfg().risk; const has = s.total_assets != null;
   setChrome("ホーム", R.today() + (has ? `　総資産は ${s.assets_date} 時点` : ""), "#home");
   const st = R.periodStats(S, ...R.periodRange("ytd"));
   let h = '<div class="tiles">' + tile("総資産", has ? R.yen(s.total_assets) : "未登録", has ? `許せる損失 ${R.man(s.total_assets * r.max_risk_pct / 100)}` : "下の「総資産を更新」から")
-    + tile("株に入れている割合", R.pct(s.invested_pct), `現物 ${R.man(s.cash_invested)} / 信用 ${R.man(s.margin_invested)}` + (s.futures_notional ? ` / 先物 ${R.man(s.futures_notional)}` : ""))
+    + tile("株に入れている割合", R.pct(s.invested_pct), `現物 ${R.man(s.cash_invested)} / 信用 ${R.man(s.margin_invested)}` + (s.futures_principal ? ` / 先物の元本 ${R.man(s.futures_principal)}` : s.futures_notional ? ` / 先物 ${R.man(s.futures_notional)}` : ""))
     + tile("保有銘柄数", `${s.n_positions} 銘柄`, `上限 ${r.max_positions}`) + tile("全損切り時の損失", R.pct(s.sl_total_pct), `上限 ${r.max_total_loss_pct}%`) + "</div>";
   if (st.n) h += `<div class="muted" style="margin:8px 2px 0">年初来の成績：勝率 <b>${st.win_rate.toFixed(0)}%</b>${st.rr != null ? `・RR比 <b>${st.rr.toFixed(2)}</b>` : ""}・損益 <b>${R.signed0(st.total_pnl_jpy / 10000)}万円</b>（決済 ${st.n}回）　<a class="lnk" href="#stats">詳しく</a></div>`;
   h += `<a class="btn sub" href="#assets">総資産を更新</a>`;
   const warns = R.collectWarnings(S, cfg());
   if (warns.length) h += box("warn", `<ul class="w">${warns.map((w) => `<li>${esc(w.text)}${w.go ? `（<a href="#${w.go === "assets" ? "assets" : w.go === "review" ? "review" : w.go.replace("sl:", "sl/")}">${w.go.startsWith("sl:") ? "いま決める" : w.go === "assets" ? "更新する" : "振り返る"}</a>）` : ""}</li>`).join("")}</ul>`);
   if (has) {
-    const pal = cfg().charts.colors; const items = s.by_stock.filter((g) => !g.fut).map((g, i) => [`${g.code} ${g.name}`, g.amount, pal[i % pal.length]]);
-    items.push(["現金", Math.max(s.total_assets - items.reduce((a, [, v]) => a + v, 0), 0), cfg().charts.cash_color]);
-    h += `<h2>総資産の内訳</h2><div class="card">${donut(items, s.total_assets)}${s.futures_notional ? `<div class="muted" style="margin-top:8px">先物の想定元本 ${R.man(s.futures_notional)}（総資産の ${(s.futures_notional / s.total_assets).toFixed(1)} 倍）。円グラフには入れていません</div>` : ""}</div>`;
+    // 先物も想定元本の大きさで円に入れる（現金は減らさない＝証拠金だけで建てるため）
+    // 元本を設定した先物はその金額（現金から引く）。設定していない先物は想定元本（現金は減らさない）
+    const pal = cfg().charts.colors; const items = s.by_stock.map((g, i) => [g.name || g.code, g.principal ?? g.amount, pal[i % pal.length]]);
+    const fp = s.futures_principal || 0; const fn = s.by_stock.filter((g) => g.fut && g.principal == null).reduce((a, g) => a + g.amount, 0);
+    const posSum = items.reduce((a, [, v]) => a + v, 0); const over = posSum / s.total_assets * 100;
+    items.push(["現金", Math.max(s.total_assets - (posSum - fn), 0), cfg().charts.cash_color]);
+    h += `<h2>ポートフォリオ</h2><div class="card">${donut(items, s.total_assets)}${fp ? `<div class="muted" style="margin-top:8px">先物は設定した元本 ${R.man(fp)} で表示</div>` : ""}${fn ? `<div class="muted" style="margin-top:8px">元本を入れていない先物は想定元本 ${R.man(fn)}（総資産の ${(fn / s.total_assets).toFixed(1)} 倍）で表示。「買う」で種別を先物にすると1枚の元本を入れられます</div>` : ""}${over > 100.05 ? `<div class="note">建玉の合計は総資産の ${over.toFixed(1)}%（${fn ? "先物の想定元本を含む" : "信用で総資産を超えています"}）。円は建玉どうしの比率、右の数字は総資産比です</div>` : ""}</div>`;
   }
   h += "<h2>保有している株・先物</h2>";
   const open = R.enrichLots(R.openLots(S.lots), S.assets);
@@ -76,10 +86,12 @@ function home() {
       const shares = g.reduce((a, l) => a + l.shares, 0); const avg = g.reduce((a, l) => a + l.en_price * l.shares, 0) / shares;
       const sls = g.map((l) => l.sl_price).filter((x) => x != null);
       const sl = !sls.length ? "未設定" : sls.length < g.length ? "一部未設定" : new Set(sls).size === 1 ? R.priceStr(sls[0]) : `${R.priceStr(Math.min(...sls))}〜${R.priceStr(Math.max(...sls))}`;
+      const tps = g.map((l) => l.target_price).filter((x) => x != null);
+      const tp = !tps.length ? "-" : new Set(tps).size === 1 ? R.priceStr(tps[0]) : `${R.priceStr(Math.min(...tps))}〜${R.priceStr(Math.max(...tps))}`;
       const acct = g[0].fut ? "先物" : R.ACCOUNT_LABEL[g[0].account];
       const pctAll = g.reduce((a, l) => a + (l.pct_of_assets || 0), 0), amtAll = g.reduce((a, l) => a + l.amount_jpy, 0);
-      h += `<div class="pos"><div style="min-width:0"><div class="n">${esc(code)} ${esc(R.stockName(S, code))}　<span class="qty">${R.qtyStr(code, shares)}</span></div><div class="d">${R.SIDE_LABEL[side]}・${acct}　損切り値 ${esc(sl)}</div></div>
-        <div class="r two"><div><span class="k">${g.length > 1 ? "平均" : "買値"}</span><span class="v">${R.priceStr(avg)}${g[0].market === "US" ? "ドル" : "円"}</span></div><div><span class="k">総資産比</span><span class="v">${R.pct(pctAll)}${g[0].market === "US" && !g[0].fut ? `（≒${R.man(amtAll)}）` : ""}</span></div></div></div>`;
+      h += `<div class="pos"><div style="min-width:0"><div class="n">${esc(code)} ${esc(R.stockName(S, code))}　<span class="qty">${R.qtyStr(code, shares)}</span></div><div class="d">${R.SIDE_LABEL[side]}・${acct}　SL / TP　${esc(sl)} / ${esc(tp)}</div></div>
+        <div class="r two"><div><span class="k">買値</span><span class="v">${R.priceStr(avg)}${g[0].market === "US" ? "ドル" : "円"}</span></div><div><span class="k">総資産比</span><span class="v">${R.pct(pctAll)}${g[0].market === "US" && !g[0].fut ? `（≒${R.man(amtAll)}）` : ""}</span></div></div></div>`;
       for (const l of g) h += `<div class="lot"><span>${esc(l.original_en_date || l.en_date)}　${R.priceStr(l.en_price)}${l.en_type === "reset" ? "（置き直し）" : ""}　${R.qtyStr(code, l.shares)}</span><span><a href="#sl/${l.id}">損切り値</a><a href="#reset/${l.id}">置き直し</a><a href="#sell/${l.id}">${side === "short" ? "買い戻す" : "売る"}</a></span></div>`;
     }
     h += "</div>";
@@ -88,45 +100,52 @@ function home() {
 }
 
 // ---------- 買う・空売り ----------
-const buyForm = { side: "long", code: "", fut: "", name: "", date: "", price: "", sl: "", shares: "", account: "cash", memo: "", hr: "unknown", conv: "" };
+const buyForm = { side: "long", code: "", fut: "JP", name: "", date: "", price: "", sl: "", target: "", shares: "", account: "cash", memo: "", hr: "unknown", conv: "" };
 function buy() {
   setChrome("買う・空売り", "", "#buy"); if (!buyForm.date) buyForm.date = R.today();
   const f = buyForm;
   $("#main").innerHTML = `<div class="card"><form id="buyf" onsubmit="return false">
-    ${select("売買", "b_side", [["long", "買い"], ["short", "空売り"]], f.side)}
-    ${field("銘柄コード（例 7203 / AAPL）", "b_code", f.code, "text", { caps: true, list: "codes" })}<datalist id="codes">${S.stocks.map((s) => `<option value="${esc(s.code)}">${esc(s.name)}</option>`).join("")}</datalist>
-    ${select("先物（株ならそのまま）", "b_fut", [["", "株（上のコードを使う）"], ...R.FUTURES.map((x) => [x.code, x.name])], f.fut)}
+    <div class="row2">${select("売買", "b_side", [["long", "買い"], ["short", "空売り"]], f.side)}${select("種別", "b_fut", [["JP", "日本株"], ["US", "米国株"], ...R.FUTURES.map((x) => [x.code, x.name])], f.fut || "JP")}</div>
+    <div id="b_codewrap">${field("銘柄コード（例 7203 / AAPL）", "b_code", f.code, "text", { caps: true, list: "codes" })}<datalist id="codes">${S.stocks.map((s) => `<option value="${esc(s.code)}">${esc(s.name)}</option>`).join("")}</datalist></div>
     <div id="b_known" class="muted"></div><div id="b_namewrap">${field("銘柄名（初めての銘柄のとき）", "b_name", f.name)}</div>
-    ${field("買った日", "b_date", f.date, "date")}
-    <div class="row2">${field("買値　円", "b_price", f.price, "number", { step: "any" })}${field("損切り値　円", "b_sl", f.sl, "number", { step: "any" })}</div>
-    ${field("数量（株）", "b_shares", f.shares, "number", { step: "1" })}
-    <div id="b_acctwrap">${select("現物／信用", "b_account", [["cash", "現物"], ["margin", "信用"]], f.account)}</div>
-    ${field("メモ（買う根拠を1行。振り返りの「ENの理由」になります）", "b_memo", f.memo)}
+    <div class="row2">${field("買った日", "b_date", f.date, "date")}<div id="b_acctwrap">${select("現物／信用", "b_account", [["cash", "現物"], ["margin", "信用"]], f.account)}</div><div id="b_prinwrap">${field("1枚の元本　円", "b_principal", "", "number", { step: "any", placeholder: "任意" })}</div></div>
+    <div id="b_prinhint" class="muted">1枚の元本＝この先物1枚に充てるお金（証拠金など、自分で決めた金額）。入れるとポートフォリオと総資産比を「枚数×この金額」で出します。空欄なら想定元本のまま</div>
+    <div class="row2">${field("買値　円", "b_price", f.price, "number", { step: "any" })}${field("数量（株）", "b_shares", f.shares, "number", { step: "1" })}</div>
+    <div class="row2">${field("損切り値　円", "b_sl", f.sl, "number", { step: "any" })}${field("目標値　円", "b_target", f.target, "number", { step: "any" })}</div>
+    ${field("メモ（買う根拠。振り返りの「ENの理由」になります）", "b_memo", f.memo)}
     <div class="row2">${select("HR候補か", "b_hr", [["unknown", "未判定"], ["yes", "はい"], ["no", "いいえ"]], f.hr)}${select("確信度", "b_conv", [["", "未記入"], ["1", "1（小）"], ["3", "3（中）"], ["9", "9（大）"]], f.conv)}</div>
     <div id="preview"></div>
     <button id="b_save" type="button">この内容で登録する</button></form></div>`;
   const form = $("#buyf");
   form.addEventListener("input", () => { readBuy(); buyPreview(); });
-  form.addEventListener("change", () => { readBuy(); if (f.fut) { f.code = f.fut; $("#b_code").value = f.fut; } buyPreview(); });
+  form.addEventListener("change", (ev) => { readBuy();
+    if (ev.target.id === "b_principal") { savePrincipal(); return; }
+    if (ev.target.id === "b_fut") { if (R.futureSpec(f.fut)) f.code = f.fut; else if (R.futureSpec(f.code)) f.code = ""; $("#b_code").value = f.code; }  // 先物を選んだらコードは要らない
+    buyPreview(); });
   $("#b_save").addEventListener("click", buySave);
   buyPreview();
 }
-function readBuy() { for (const k of ["side", "code", "fut", "name", "date", "price", "sl", "shares", "account", "memo", "hr", "conv"]) buyForm[k] = val("b_" + k); buyForm.code = buyForm.code.trim().toUpperCase(); }
+function readBuy() { for (const k of ["side", "code", "fut", "name", "date", "price", "sl", "target", "shares", "account", "memo", "hr", "conv"]) buyForm[k] = val("b_" + k); buyForm.code = buyForm.code.trim().toUpperCase(); }
 function buyPreview() {
   const f = buyForm; const spec = R.futureSpec(f.code); const fut = !!spec; const market = f.code ? R.marketForCode(f.code) : "JP"; const short = f.side === "short";
   const known = S.stocks.find((s) => s.code === f.code);
   $("#b_known").textContent = f.code ? (fut ? `${spec.name}（${R.unitNote(f.code)}）` : known ? `${known.name}（${market === "JP" ? "日本株" : "米国株"}）` : `新しい銘柄（${market === "JP" ? "日本株" : "米国株"}）。名前を下に入れてください`) : "";
+  $("#b_codewrap").style.display = fut ? "none" : ""; $("#b_prinwrap").style.display = $("#b_prinhint").style.display = fut ? "" : "none";
+  if (fut && buyForm._prinFor !== f.code) { buyForm._prinFor = f.code; $("#b_principal").value = R.futuresPrincipal(f.code) || ""; }   // 先物を選び直したら、覚えている元本を出す
+  if (!fut) buyForm._prinFor = null;
+  if (fut || f.code) { f.fut = fut ? f.code : market; $("#b_fut").value = f.fut; }   // 種別をコードに合わせる
   $("#b_namewrap").style.display = f.code && !fut && !known ? "" : "none";
   $("#b_acctwrap").style.display = fut || short ? "none" : "";
   $("label[for=b_date]").textContent = short ? "売った日（新規）" : "買った日"; $("label[for=b_price]").textContent = `${short ? "売値（新規）" : "買値"}　${curOf(market)}`;
-  $("label[for=b_sl]").textContent = `損切り値　${curOf(market)}${short ? "（売値より上）" : ""}`; $("label[for=b_shares]").textContent = `数量（${R.qtyWord(f.code)}）`;
+  $("label[for=b_sl]").textContent = `損切り値　${curOf(market)}${short ? "（売値より上）" : ""}`; $("label[for=b_target]").textContent = `目標値　${curOf(market)}`; $("label[for=b_shares]").textContent = `数量（${R.qtyWord(f.code)}）`;
   $("#b_shares").step = fut || market === "US" ? "1" : "100";
   const price = num(f.price), sl = num(f.sl), shares = num(f.shares);
-  if (!f.code || price <= 0) { $("#preview").innerHTML = '<div class="muted" style="margin-top:10px">コードと買値を入れると評価が出ます</div>'; $("#b_save").disabled = true; return; }
+  if (!f.code || price <= 0) { $("#preview").innerHTML = "<h2>評価</h2>"; $("#b_save").disabled = true; return; }
   const pv = R.enPreview(S, cfg(), f.code, market, price, shares, sl || null, f.side);
   let h = "<h2>評価</h2>";
   if (pv.suggested_shares) h += `<button type="button" class="sub" id="b_fill">目安の ${R.fmt0(pv.suggested_shares)} ${R.qtyWord(f.code)} を数量に入れる</button>`;
   h += kv("許せる損失の上限", R.yen(pv.max_risk_amount)) + kv("損切り時の損失", pv.risk_amount != null ? `${R.yen(pv.risk_amount)}（${R.pct(pv.risk_pct)}）` : "損切り値を入れると出ます")
+    + (fut && R.futuresPrincipal(f.code) && shares > 0 ? kv("元本（1枚の元本×枚数）", R.yen(R.futuresPrincipal(f.code) * shares)) : "")
     + kv(fut ? "想定元本" : short ? "売る金額" : "買う金額", fut && pv.notional_x != null ? `${R.yen(pv.amount)}（総資産の ${pv.notional_x.toFixed(1)} 倍）` : `${R.yen(pv.amount)}（${R.pct(pv.amount_pct)}）`)
     + (pv.fx && pv.fx !== 1 ? kv("ドル建て・為替", `$${R.priceStr(pv.amount_local)}　1ドル ${pv.fx.toFixed(2)} 円`) : "")
     + kv("株の割合（登録後）", `${R.pct(pv.invested_pct_before)} → ${R.pct(pv.invested_pct_after)}`) + kv("銘柄数（登録後）", `${pv.n_positions_after}（上限 ${cfg().risk.max_positions}）`)
@@ -137,8 +156,12 @@ function buyPreview() {
   const fill = $("#b_fill"); if (fill) fill.addEventListener("click", () => { $("#b_shares").value = pv.suggested_shares; buyForm.shares = String(pv.suggested_shares); buyPreview(); });
   buyForm._pv = pv; buyForm._market = market; buyForm._fut = fut; buyForm._known = known;
 }
+function savePrincipal() {   // 1枚の元本を商品ごとに覚える（同じ先物の保有すべてに効く）
+  const code = buyForm.code; if (!R.futureSpec(code)) return; const m = (cfg().futures_principal ||= {}); const v = num(val("b_principal"));
+  if (v > 0) m[code] = v; else delete m[code]; R.setFuturesPrincipal(m); save(); buyPreview();
+}
 function buySave() {
-  readBuy(); buyPreview(); const f = buyForm; const pv = f._pv; if (!pv) return;
+  readBuy(); if (R.futureSpec(buyForm.code)) savePrincipal(); buyPreview(); const f = buyForm; const pv = f._pv; if (!pv) return;
   const price = num(f.price), sl = num(f.sl), shares = num(f.shares); const spec = R.futureSpec(f.code);
   const name = spec ? spec.name : f._known ? f._known.name : f.name.trim();
   if (!name) { toast("銘柄名を入れてください"); return; }
@@ -146,12 +169,12 @@ function buySave() {
   const short = f.side === "short"; const account = f._fut || short ? "margin" : f.account;
   if (!f._known) R.upsertStock(S, f.code, name, f._market);
   const key = R.episodeKeyForBuy(S, f.code, f.date);
-  R.insertLot(S, { code: f.code, market: f._market, account, side: f.side, en_date: f.date, en_price: price, shares, sl_price: sl || null, memo: f.memo });
+  R.insertLot(S, { code: f.code, market: f._market, account, side: f.side, en_date: f.date, en_price: price, shares, sl_price: sl || null, target_price: num(f.target) || null, memo: f.memo });
   const rv = S.reviews.find((r) => r.key === key) || (S.reviews.push({ key, code: f.code, start_date: f.date, habits: [], created_at: R.nowStr() }), S.reviews[S.reviews.length - 1]);
   if (f.hr !== "unknown") rv.hr_candidate = f.hr; if (f.conv) rv.conviction = +f.conv;
   if (f.memo.trim()) { const line = `${f.date} ${short ? "空売り" : "買"} ${R.qtyStr(f.code, shares)}: ${f.memo.trim()}`; rv.en_reason = rv.en_reason ? rv.en_reason + "\n" + line : line; }
   save(); toast(`✓ ${f.code} ${name} ${R.qtyStr(f.code, shares)} を登録しました` + (sl ? "" : "（損切り値が未設定です）"));
-  Object.assign(buyForm, { code: "", fut: "", name: "", price: "", sl: "", shares: "", memo: "", hr: "unknown", conv: "" }); go("#home");
+  Object.assign(buyForm, { code: "", fut: "JP", name: "", price: "", sl: "", target: "", shares: "", memo: "", hr: "unknown", conv: "" }); go("#home");
 }
 
 // ---------- 売る・置き直し・損切り値 ----------
@@ -469,6 +492,7 @@ function settings() {
     ${row("想定RR比", "c_rr", r.rr_ratio, "1回の利益÷1回の損失の目安")}
     ${row("置き直し未実施の目安 %", "c_reset", r.reset_threshold_pct, "建値からこの%以上動いたら置き直しを考える目安")}
     <button id="c_save" type="button">ルールを保存する</button></div>`;
+  h += `<div class="card"><h2 style="margin-top:0">背景の色</h2>${select("白か黒かを選べます（自動＝スマホの設定に合わせる）", "c_theme", [["auto", "自動"], ["light", "白"], ["dark", "黒"]], (cfg().ui || {}).theme || "auto")}</div>`;
   h += `<div class="card"><h2 style="margin-top:0">円グラフの色</h2><div class="chips">${c.colors.map((col, i) => `<label class="chip" style="padding:4px 8px"><input type="color" data-ci="${i}" value="${col}" style="width:34px;height:26px;padding:0;border:0;background:none"> ${i + 1}</label>`).join("")}<label class="chip" style="padding:4px 8px"><input type="color" id="c_cash" value="${c.cash_color}" style="width:34px;height:26px;padding:0;border:0;background:none"> 現金</label></div><div class="muted">変えるとすぐ保存されます。銘柄の順に使います。</div></div>`;
   h += `<div class="card"><h2 style="margin-top:0">バックアップ（機種変更・万一のため）</h2>
     <div class="muted">データはこのスマホの中だけにあります。週に1回は書き出して、iCloud Drive や Google ドライブに保存してください。新しいスマホでは、このアプリを入れてから「読み込む」でそのファイルを選べば、全部そのまま戻ります。</div>
@@ -479,6 +503,7 @@ function settings() {
     <div class="muted" style="margin-top:10px">記録 ${S.lots.length} 件・総資産 ${S.assets.length} 件・銘柄 ${S.stocks.length} 件　最終保存 ${esc(S.saved_at || "-")}　<span id="persist"></span></div></div>`;
   h += `<div class="card"><h2 style="margin-top:0">危険な操作</h2><button id="wipe" type="button" class="danger">このスマホのデータを全部消す</button><div class="muted">消す前に必ずバックアップを書き出してください。</div></div>`;
   $("#main").innerHTML = h;
+  $("#c_theme").addEventListener("change", (ev) => { (cfg().ui ||= {}).theme = ev.target.value; save(); applyTheme(); });
   $("#c_save").addEventListener("click", () => { Object.assign(cfg().risk, { max_risk_pct: num(val("c_risk"), 3.4), ruin_threshold_pct: num(val("c_ruin"), 30), max_positions: Math.max(1, Math.round(num(val("c_pos"), 4))), max_total_loss_pct: num(val("c_loss"), 4), win_rate_pct: num(val("c_win"), 50), rr_ratio: num(val("c_rr"), 2), reset_threshold_pct: num(val("c_reset"), 3) }); save(); toast("✓ ルールを保存しました"); });
   $("#main").addEventListener("input", (ev) => { const t = ev.target; if (t.type !== "color") return; if (t.id === "c_cash") c.cash_color = t.value; else c.colors[+t.dataset.ci] = t.value; save(); });
   $("#bk_out").addEventListener("click", async () => { const r2 = await DB.shareOrDownload(DB.backupBlob(S), DB.backupName()); if (r2 !== "cancelled") toast(r2 === "shared" ? "共有しました" : "ダウンロードしました（ファイルアプリの「ダウンロード」にあります）"); });

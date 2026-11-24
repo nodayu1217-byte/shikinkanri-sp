@@ -68,6 +68,10 @@ export function fxRate(assets, onOrBefore = null) {
   return any.length ? +any[0].usd_jpy : null;
 }
 
+// 先物 1枚あたりの元本（円）。{コード: 円}。入れた先物は、ポートフォリオと総資産比を「枚数×この金額」で出す
+let FUT_PRINCIPAL = {};
+export function setFuturesPrincipal(map) { FUT_PRINCIPAL = map || {}; }
+export const futuresPrincipal = (code) => +FUT_PRINCIPAL[String(code || "").toUpperCase()] || 0;
 // ---------- ロットの計算（分母は常に最新の総資産） ----------
 export function enrichLots(lots, assets) {
   const latest = latestAssets(assets); const total = latest ? +latest.total_jpy : null;
@@ -75,14 +79,15 @@ export function enrichLots(lots, assets) {
     const unit = unitFor(l.code), fut = isFuture(l.code), sgn = sign(l.side);
     const fxEn = l.market === "US" ? (fxRate(assets, l.en_date) || 0) : 1;
     const amount_jpy = l.en_price * l.shares * unit * fxEn;
+    const principal_jpy = fut && futuresPrincipal(l.code) ? futuresPrincipal(l.code) * l.shares : null;   // 設定していなければ null（想定元本を使う）
     const closed = l.ex_price != null && l.ex_date;
     const fxEx = closed ? (l.market === "US" ? (fxRate(assets, l.ex_date) || 0) : 1) : null;
     const pnl_jpy = closed ? (l.ex_price - l.en_price) * sgn * l.shares * unit * fxEx : null;
     const pnl_pct = closed ? (l.ex_price / l.en_price - 1) * 100 * sgn : null;
     const sl_loss_jpy = l.sl_price != null && !closed ? (l.en_price - l.sl_price) * sgn * l.shares * unit * fxEn : null;
     return {
-      ...l, unit, fut, fx_en: fxEn, amount_jpy,
-      pct_of_assets: total ? amount_jpy / total * 100 : null,
+      ...l, unit, fut, fx_en: fxEn, amount_jpy, principal_jpy,
+      pct_of_assets: total ? (principal_jpy ?? amount_jpy) / total * 100 : null,
       pnl_jpy, pnl_pct, pnl_of_assets_pct: total && pnl_jpy != null ? pnl_jpy / total * 100 : null,
       sl_loss_jpy, sl_loss_pct: total && sl_loss_jpy != null ? sl_loss_jpy / total * 100 : null,
     };
@@ -95,20 +100,20 @@ export function portfolioSummary(state) {
   const latest = latestAssets(state.assets); const total = latest ? +latest.total_jpy : null;
   const df = enrichLots(openLots(state.lots), state.assets);
   const out = { total_assets: total, assets_date: latest ? latest.date : null, invested: 0, invested_pct: null, cash_pct: null,
-    cash_invested: 0, margin_invested: 0, futures_notional: 0, n_positions: 0, by_stock: [], sl_total_pct: 0 };
+    cash_invested: 0, margin_invested: 0, futures_notional: 0, futures_principal: 0, n_positions: 0, by_stock: [], sl_total_pct: 0 };
   if (!df.length) { if (total) { out.invested_pct = 0; out.cash_pct = 100; } return out; }
   for (const r of df) {
-    if (r.fut) out.futures_notional += r.amount_jpy;
+    if (r.fut) { out.futures_notional += r.amount_jpy; out.futures_principal += r.principal_jpy || 0; }
     else { out.invested += r.amount_jpy; if (r.account === "margin") out.margin_invested += r.amount_jpy; else out.cash_invested += r.amount_jpy; }
     out.sl_total_pct += r.sl_loss_pct || 0;
   }
   if (total) { out.invested_pct = out.invested / total * 100; out.cash_pct = 100 - out.invested_pct; }
   const groups = new Map();
   for (const r of df) {
-    const k = r.code; const g = groups.get(k) || { code: r.code, name: stockName(state, r.code), market: r.market, fut: r.fut, shares: 0, amount: 0, cost: 0 };
-    g.shares += r.shares; g.amount += r.amount_jpy; g.cost += r.en_price * r.shares; groups.set(k, g);
+    const k = r.code; const g = groups.get(k) || { code: r.code, name: stockName(state, r.code), market: r.market, fut: r.fut, shares: 0, amount: 0, cost: 0, principal: null };
+    g.shares += r.shares; g.amount += r.amount_jpy; if (r.principal_jpy != null) g.principal = (g.principal || 0) + r.principal_jpy; g.cost += r.en_price * r.shares; groups.set(k, g);
   }
-  out.by_stock = [...groups.values()].map((g) => ({ ...g, avg_price: g.shares ? g.cost / g.shares : null, pct_of_assets: total ? g.amount / total * 100 : null }));
+  out.by_stock = [...groups.values()].map((g) => ({ ...g, avg_price: g.shares ? g.cost / g.shares : null, pct_of_assets: total ? (g.principal ?? g.amount) / total * 100 : null }));
   out.n_positions = groups.size;
   return out;
 }
